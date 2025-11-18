@@ -1,0 +1,57 @@
+
+export enum GameState {
+  MENU = 'MENU',
+  PLAYING = 'PLAYING',
+  GAME_OVER = 'GAME_OVER'
+}
+
+export type ShipShape = 'STRIKER' | 'INTERCEPTOR' | 'TITAN';
+export type PowerUpType = 'SHIELD' | 'WEAPON' | 'FUEL';
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Entity {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  vx: number;
+  vy: number;
+  color: string;
+}
+
+export interface Star {
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  brightness: number;
+}
+
+export interface Player extends Entity {
+  shield: number; // 0-1000
+  maxShield: number;
+  weaponLevel: number; // 1, 2, 3
+  speedBoostTimer: number; // Time remaining for speed boost in ms
+  shape: ShipShape;
+}
+
+export interface Asteroid extends Entity {
+  rotation: number;
+  rotationSpeed: number;
+  points: Point[]; // Polygon points for drawing
+  hp: number;
+  damage: number; // Damage dealt on impact
+}
+
+export interface PowerUp extends Entity {
+  type: PowerUpType;
+  pulse: number; // For visual animation
+}
+
+export interface Projectile extends Entity {
+  active: boolean;
+}

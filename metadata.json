@@ -1,0 +1,5 @@
+{
+  "name": "Void Velocity",
+  "description": "An intense space survival game where you pilot a shuttle through an asteroid field. Features AI-generated mission briefings and crash analysis using Gemini.",
+  "requestFramePermissions": []
+}
