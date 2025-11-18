@@ -25,6 +25,19 @@ export const MAX_ASTEROID_SIZE = 80;
 export const ASTEROID_BASE_SPEED = 3;
 export const SPAWN_RATE_MS = 800; // Spawn new asteroid every X ms
 
+// Level System
+export const LEVEL_THRESHOLDS = [0, 1000, 3000, 6000, 10000]; // Score needed for Level 1, 2, 3, 4, 5
+export const LEVEL_NAMES = [
+  "Sector Alpha", 
+  "The Debris Field", 
+  "Kessler Syndrome", 
+  "The Deep Void", 
+  "Event Horizon"
+];
+// Difficulty Scaling per level
+export const LEVEL_SPEED_MULTIPLIER = 1.2; // Asteroids get 20% faster per level
+export const LEVEL_SPAWN_RATE_REDUCTION = 100; // Spawn 100ms faster per level
+
 // PowerUps
 export const POWERUP_SIZE = 25;
 export const POWERUP_SPEED = 2.5;
@@ -47,6 +60,10 @@ export const COLOR_PALETTE = {
   bg: '#050505',
   text: '#ffffff'
 };
+
+// High Scores
+export const STORAGE_KEY_HIGH_SCORES = 'void_velocity_high_scores';
+export const MAX_HIGH_SCORES = 5;
 
 // Gemini Prompts
 export const SYSTEM_INSTRUCTION = `You are VOID-AI, the onboard navigation computer of a solitary space shuttle. 

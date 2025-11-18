@@ -206,3 +206,36 @@ export const playShieldBreak = () => {
   osc.start();
   osc.stop(t + 0.3);
 };
+
+export const playLevelUp = () => {
+  if (!audioCtx) initAudio();
+  if (!audioCtx) return;
+
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  
+  // Rising warp sound
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(220, t);
+  osc.frequency.exponentialRampToValueAtTime(880, t + 1.5);
+  
+  // Flanger-ish effect
+  const lfo = audioCtx.createOscillator();
+  lfo.frequency.value = 15;
+  const lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = 500;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+  lfo.start();
+  lfo.stop(t + 1.5);
+
+  gain.gain.setValueAtTime(0.1, t);
+  gain.gain.linearRampToValueAtTime(0.2, t + 1.0);
+  gain.gain.linearRampToValueAtTime(0, t + 1.5);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(t + 1.5);
+};

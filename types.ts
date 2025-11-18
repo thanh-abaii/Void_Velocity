@@ -55,3 +55,8 @@ export interface PowerUp extends Entity {
 export interface Projectile extends Entity {
   active: boolean;
 }
+
+export interface HighScoreEntry {
+  score: number;
+  date: string; // ISO string
+}

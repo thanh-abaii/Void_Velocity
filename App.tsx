@@ -1,10 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import GameCanvas from './components/GameCanvas';
-import { GameState, ShipShape } from './types';
+import { GameState, ShipShape, HighScoreEntry } from './types';
 import { generateMissionBriefing, generateCrashReport } from './services/geminiService';
-import { COLOR_PALETTE, SHIP_COLORS, PLAYER_MAX_SHIELD } from './constants';
-import { initAudio } from './services/audioService';
+import { 
+  COLOR_PALETTE, SHIP_COLORS, PLAYER_MAX_SHIELD, 
+  STORAGE_KEY_HIGH_SCORES, MAX_HIGH_SCORES, 
+  LEVEL_THRESHOLDS, LEVEL_NAMES 
+} from './constants';
+import { initAudio, playLevelUp } from './services/audioService';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
@@ -15,10 +19,16 @@ const App: React.FC = () => {
   const [aiMessage, setAiMessage] = useState<string>("Initializing system...");
   const [isLoading, setIsLoading] = useState(false);
   const [finalTime, setFinalTime] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [showLevelUpScreen, setShowLevelUpScreen] = useState(false);
   
   // Customization State
   const [shipColor, setShipColor] = useState<string>(SHIP_COLORS[0]);
   const [shipShape, setShipShape] = useState<ShipShape>('STRIKER');
+
+  // High Scores State
+  const [highScores, setHighScores] = useState<HighScoreEntry[]>([]);
+  const [showHighScores, setShowHighScores] = useState(false);
 
   useEffect(() => {
     // Initial Mission Briefing
@@ -29,26 +39,74 @@ const App: React.FC = () => {
       setIsLoading(false);
     };
     fetchBriefing();
+
+    // Load High Scores
+    const savedScores = localStorage.getItem(STORAGE_KEY_HIGH_SCORES);
+    if (savedScores) {
+      try {
+        const parsed = JSON.parse(savedScores);
+        setHighScores(parsed);
+        if (parsed.length > 0) {
+          setHighScore(parsed[0].score);
+        }
+      } catch (e) {
+        console.error("Failed to parse high scores");
+      }
+    }
   }, []);
+
+  // Level Up Logic
+  useEffect(() => {
+    if (gameState !== GameState.PLAYING) return;
+
+    const nextLevel = level + 1;
+    // Check if next level exists in thresholds and if score meets it
+    if (nextLevel <= LEVEL_THRESHOLDS.length && score >= LEVEL_THRESHOLDS[nextLevel - 1]) {
+      setLevel(nextLevel);
+      setShowLevelUpScreen(true);
+      playLevelUp();
+      
+      // Hide overlay after animation
+      setTimeout(() => {
+        setShowLevelUpScreen(false);
+      }, 2500);
+    }
+  }, [score, gameState, level]);
 
   const startGame = () => {
     initAudio(); // Initialize audio context on user interaction
     setGameState(GameState.PLAYING);
     setScore(0);
+    setLevel(1);
   };
+
+  const updateHighScores = useCallback((finalScore: number) => {
+    const newEntry: HighScoreEntry = { score: finalScore, date: new Date().toISOString() };
+    const updatedScores = [...highScores, newEntry]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_HIGH_SCORES);
+    
+    setHighScores(updatedScores);
+    localStorage.setItem(STORAGE_KEY_HIGH_SCORES, JSON.stringify(updatedScores));
+    
+    if (updatedScores.length > 0) {
+      setHighScore(updatedScores[0].score);
+    }
+  }, [highScores]);
 
   const handleGameOver = useCallback(async (finalScore: number, timeSurvived: number) => {
     setGameState(GameState.GAME_OVER);
     setScore(finalScore);
     setFinalTime(timeSurvived);
-    if (finalScore > highScore) setHighScore(finalScore);
+    
+    updateHighScores(finalScore);
 
     setIsLoading(true);
     setAiMessage("Analyzing black box data...");
     const report = await generateCrashReport(finalScore, timeSurvived);
     setAiMessage(report);
     setIsLoading(false);
-  }, [highScore]);
+  }, [updateHighScores]);
 
   return (
     <div className="relative w-full h-screen overflow-hidden font-mono text-white select-none">
@@ -61,7 +119,22 @@ const App: React.FC = () => {
         setWeaponLevel={setWeaponLevel}
         shipColor={shipColor}
         shipShape={shipShape}
+        level={level}
       />
+
+      {/* Level Up Overlay */}
+      {showLevelUpScreen && (
+        <div className="absolute inset-0 flex items-center justify-center z-30 bg-cyan-500/10 backdrop-blur-sm animate-[pulse_0.5s_ease-in-out]">
+           <div className="text-center transform scale-150 transition-transform duration-500">
+              <h2 className="text-6xl font-black italic text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-cyan-300 animate-[gradient_1s_infinite]">
+                HYPERSPACE JUMP
+              </h2>
+              <p className="text-xl text-cyan-200 mt-2 tracking-[1em] uppercase">
+                Entering {LEVEL_NAMES[level - 1] || `Level ${level}`}
+              </p>
+           </div>
+        </div>
+      )}
 
       {/* UI Overlay - Play Mode */}
       {gameState === GameState.PLAYING && (
@@ -82,6 +155,12 @@ const App: React.FC = () => {
                   {/* Grid overlay for tech feel */}
                   <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNCIgaGVpZ2h0PSI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xIDFWMGgxVjF6IiBmaWxsPSJyZ2JhKDAsMCwwLDAuMikiLz48L3N2Zz4=')] opacity-50"></div>
                 </div>
+             </div>
+
+             {/* Level Indicator (Center) */}
+             <div className="flex flex-col items-center opacity-80">
+                <span className="text-[10px] text-gray-400 uppercase tracking-[0.2em]">Current Sector</span>
+                <span className="text-lg font-bold text-cyan-100">{LEVEL_NAMES[level - 1] || `LEVEL ${level}`}</span>
              </div>
 
             {/* Score */}
@@ -109,7 +188,7 @@ const App: React.FC = () => {
           
           {/* High Score Small */}
           <div className="absolute top-16 right-4 flex flex-col items-end opacity-50">
-            <span className="text-[10px] text-purple-400 uppercase tracking-widest">Session Record</span>
+            <span className="text-[10px] text-purple-400 uppercase tracking-widest">All-Time Best</span>
             <span className="text-sm font-bold text-purple-300">
               {highScore.toString().padStart(6, '0')}
             </span>
@@ -133,52 +212,100 @@ const App: React.FC = () => {
             </h1>
             <p className="text-sm text-gray-400 mb-4 uppercase tracking-[0.2em]">Hyper-Speed Survival Protocol</p>
 
-            <div className="mb-6 p-4 bg-cyan-900/20 border border-cyan-800/50 rounded text-left">
-              <h3 className="text-xs text-cyan-400 mb-1 uppercase font-bold">Mission Briefing // VOID-AI</h3>
-              <p className={`text-sm leading-relaxed ${isLoading ? 'animate-pulse' : ''} text-cyan-100`}>
-                {isLoading ? "Decrypting secure transmission..." : `"${aiMessage}"`}
-              </p>
-            </div>
+            {!showHighScores ? (
+              <>
+                <div className="mb-6 p-4 bg-cyan-900/20 border border-cyan-800/50 rounded text-left">
+                  <h3 className="text-xs text-cyan-400 mb-1 uppercase font-bold">Mission Briefing // VOID-AI</h3>
+                  <p className={`text-sm leading-relaxed ${isLoading ? 'animate-pulse' : ''} text-cyan-100`}>
+                    {isLoading ? "Decrypting secure transmission..." : `"${aiMessage}"`}
+                  </p>
+                </div>
 
-            {/* Customization Section */}
-            <div className="mb-6">
-              <h3 className="text-xs text-gray-500 mb-3 uppercase tracking-widest font-bold">Hangar Configuration</h3>
-              
-              {/* Colors */}
-              <div className="flex justify-center gap-3 mb-4">
-                {SHIP_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setShipColor(color)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all duration-200 ${shipColor === color ? 'border-white scale-125 shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'border-transparent opacity-60 hover:opacity-100'}`}
-                    style={{ backgroundColor: color }}
-                    aria-label={`Select color ${color}`}
-                  />
-                ))}
-              </div>
+                {/* Customization Section */}
+                <div className="mb-6">
+                  <h3 className="text-xs text-gray-500 mb-3 uppercase tracking-widest font-bold">Hangar Configuration</h3>
+                  
+                  {/* Colors */}
+                  <div className="flex justify-center gap-3 mb-4">
+                    {SHIP_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => setShipColor(color)}
+                        className={`w-6 h-6 rounded-full border-2 transition-all duration-200 ${shipColor === color ? 'border-white scale-125 shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                        style={{ backgroundColor: color }}
+                        aria-label={`Select color ${color}`}
+                      />
+                    ))}
+                  </div>
 
-              {/* Shapes */}
-              <div className="flex justify-center gap-2">
-                {(['STRIKER', 'INTERCEPTOR', 'TITAN'] as ShipShape[]).map((shape) => (
-                  <button
-                    key={shape}
-                    onClick={() => setShipShape(shape)}
-                    className={`px-3 py-1 text-xs uppercase tracking-wider border transition-all duration-200 rounded-sm ${shipShape === shape ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}
+                  {/* Shapes */}
+                  <div className="flex justify-center gap-2">
+                    {(['STRIKER', 'INTERCEPTOR', 'TITAN'] as ShipShape[]).map((shape) => (
+                      <button
+                        key={shape}
+                        onClick={() => setShipShape(shape)}
+                        className={`px-3 py-1 text-xs uppercase tracking-wider border transition-all duration-200 rounded-sm ${shipShape === shape ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}
+                      >
+                        {shape}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <button 
+                    onClick={startGame}
+                    disabled={isLoading}
+                    className="group relative w-full py-4 px-6 bg-cyan-600 hover:bg-cyan-500 transition-all duration-200 rounded overflow-hidden"
                   >
-                    {shape}
+                    <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]"></div>
+                    <span className="relative font-bold tracking-widest uppercase text-white">Initiate Launch</span>
                   </button>
-                ))}
-              </div>
-            </div>
 
-            <button 
-              onClick={startGame}
-              disabled={isLoading}
-              className="group relative w-full py-4 px-6 bg-cyan-600 hover:bg-cyan-500 transition-all duration-200 rounded overflow-hidden"
-            >
-              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]"></div>
-              <span className="relative font-bold tracking-widest uppercase text-white">Initiate Launch</span>
-            </button>
+                  <button 
+                    onClick={() => setShowHighScores(true)}
+                    className="w-full py-2 px-4 border border-cyan-900 text-cyan-500 hover:bg-cyan-900/30 hover:border-cyan-500 transition-all duration-200 rounded text-xs uppercase tracking-widest"
+                  >
+                    View High Scores
+                  </button>
+                </div>
+              </>
+            ) : (
+              // High Score View
+              <div className="animate-fadeIn">
+                <div className="mb-6 p-4 bg-black/40 border border-gray-800 rounded max-h-[300px] overflow-y-auto custom-scrollbar">
+                  <h3 className="text-xs text-purple-400 mb-4 uppercase font-bold border-b border-purple-900 pb-2">Top 5 Pilots</h3>
+                  {highScores.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-4">No data found. Be the first.</p>
+                  ) : (
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="text-gray-600 text-xs uppercase">
+                          <th className="pb-2">Rank</th>
+                          <th className="pb-2 text-right">Score</th>
+                          <th className="pb-2 text-right">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {highScores.map((entry, index) => (
+                          <tr key={index} className="border-b border-gray-800 last:border-0 hover:bg-white/5 transition-colors">
+                            <td className="py-2 text-cyan-500 font-bold">#{index + 1}</td>
+                            <td className="py-2 text-right font-mono text-white">{entry.score}</td>
+                            <td className="py-2 text-right text-gray-500 text-xs">{new Date(entry.date).toLocaleDateString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setShowHighScores(false)}
+                  className="w-full py-3 px-6 border border-white/20 hover:bg-white/10 transition-all duration-200 rounded text-xs uppercase tracking-widest text-gray-300"
+                >
+                  Back to Hangar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

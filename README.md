@@ -8,7 +8,11 @@ The game features real-time AI integration using **Google Gemini** to generate u
 
 ## 🚀 Features
 
-- **Fast-Paced Gameplay:** Dodge and weave through procedurally generated asteroid fields that increase in difficulty over time.
+- **Fast-Paced Gameplay:** Dodge and weave through procedurally generated asteroid fields.
+- **Level Progression System:**
+  - Advance through 5 distinct sectors (e.g., "Sector Alpha", "Event Horizon").
+  - **Difficulty Scaling:** Asteroids become faster and spawn more frequently as you level up.
+  - **Hyperspace Jumps:** Intense visual transition sequences between levels.
 - **Combat System:**
   - **Shields:** Manage your shield integrity. Small impacts drain shields; large impacts can be fatal.
   - **Weapons:** Collect weapon crates to upgrade from single-fire lasers to a tri-shot spread pattern.
@@ -24,12 +28,37 @@ The game features real-time AI integration using **Google Gemini** to generate u
 - **Visuals:**
   - 3D-rendered asteroid effects with directional lighting.
   - Dynamic proximity warning system (glows red when danger is near).
-  - Parallax starfield background.
+  - Parallax starfield background that reacts to warp speed.
 
 ## 🎮 Controls
 
 - **Mouse / Touch:** Move the cursor or drag your finger to steer the ship. The ship follows your position horizontally.
 - **Shooting:** The ship fires automatically. Collect red power-ups to increase fire rate and spread.
+
+## 📋 Change Log
+
+### v1.3.0 - Level & Progression Update (Latest)
+- **Level System:** Implemented a 5-stage level progression based on Data Fragment (score) thresholds.
+- **Difficulty Scaling:**
+  - Asteroid velocity increases by 20% per level.
+  - Spawn rates become denser as you progress.
+- **Visuals:** Added "Hyperspace Jump" transition screen and warp speed starfield effects during level transitions.
+- **Audio:** Added "Level Up" warp sound effect.
+
+### v1.2.0 - Visuals & Persistence
+- **High Scores:** Added persistent leaderboard using LocalStorage (Top 5 pilots).
+- **Asteroids:** Upgraded rendering with 3D gradients and proximity danger glow.
+- **Customization:** Added Ship Shape selector (Striker, Interceptor, Titan).
+
+### v1.1.0 - Combat & Physics
+- **Health System:** Replaced "one-hit death" with a Shield Integrity bar.
+- **Weaponry:** Implemented projectile system and weapon upgrades (Level 1-3).
+- **Physics:** Added collision damage calculation based on asteroid size.
+
+### v1.0.0 - Initial Release
+- Core game loop.
+- Gemini AI integration for briefings and crash reports.
+- Basic Audio synthesis.
 
 ## 🛠️ Technologies Used
 
@@ -69,10 +98,9 @@ The game features real-time AI integration using **Google Gemini** to generate u
 ## 🎨 Customization
 
 You can tweak game constants in `constants.ts` to adjust difficulty:
-- `SPAWN_RATE_MS`: How often asteroids appear.
-- `PLAYER_SPEED`: Responsiveness of the ship.
+- `LEVEL_THRESHOLDS`: Score needed to advance levels.
+- `LEVEL_SPEED_MULTIPLIER`: How much faster asteroids get per level.
 - `SHIELD_REGEN_AMOUNT`: Health gained from power-ups.
-- `ASTEROID_BASE_SPEED`: Initial speed of obstacles.
 
 ## 📄 License
 

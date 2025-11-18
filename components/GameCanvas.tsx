@@ -7,7 +7,8 @@ import {
   STAR_COUNT, COLOR_PALETTE,
   POWERUP_SIZE, POWERUP_SPEED, SPEED_BOOST_DURATION,
   PROJECTILE_WIDTH, PROJECTILE_HEIGHT, PROJECTILE_SPEED,
-  PLAYER_MAX_SHIELD, SHIELD_REGEN_AMOUNT
+  PLAYER_MAX_SHIELD, SHIELD_REGEN_AMOUNT,
+  LEVEL_SPEED_MULTIPLIER, LEVEL_SPAWN_RATE_REDUCTION
 } from '../constants';
 import { startThruster, stopThruster, playExplosion, playPowerUp, playShoot, playShieldBreak, playDamage } from '../services/audioService';
 
@@ -19,9 +20,13 @@ interface GameCanvasProps {
   setWeaponLevel: (level: number) => void;
   shipColor: string;
   shipShape: ShipShape;
+  level: number;
 }
 
-const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore, setShield, setWeaponLevel, shipColor, shipShape }) => {
+const GameCanvas: React.FC<GameCanvasProps> = ({ 
+  gameState, onGameOver, setScore, setShield, setWeaponLevel, 
+  shipColor, shipShape, level 
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
@@ -82,13 +87,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
       points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
     }
 
+    // Calculate Speed based on Level
+    // Level 1 = Base Speed
+    // Level 2 = Base * 1.2
+    // Level 3 = Base * 1.4, etc.
+    // Plus a small random factor
+    const levelSpeedBonus = ASTEROID_BASE_SPEED * ((level - 1) * (LEVEL_SPEED_MULTIPLIER - 1));
+    const finalSpeed = ASTEROID_BASE_SPEED + levelSpeedBonus + Math.random() * 2 + (scoreRef.current / 1000);
+
     return {
       x: Math.random() * (width - size),
       y: -size * 2,
       width: size,
       height: size,
       vx: (Math.random() - 0.5) * 2,
-      vy: ASTEROID_BASE_SPEED + Math.random() * 2 + (scoreRef.current / 500),
+      vy: finalSpeed,
       color: '#8899aa',
       rotation: 0,
       rotationSpeed: (Math.random() - 0.5) * 0.1,
@@ -161,7 +174,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
     }
 
     // 2. Spawning
-    if (time - lastSpawnTimeRef.current > Math.max(200, 800 - scoreRef.current / 5)) {
+    // Reduce spawn interval as level increases
+    const levelSpawnReduction = (level - 1) * LEVEL_SPAWN_RATE_REDUCTION;
+    const spawnRate = Math.max(200, 800 - levelSpawnReduction - (scoreRef.current / 5));
+    
+    if (time - lastSpawnTimeRef.current > spawnRate) {
       asteroidsRef.current.push(createAsteroid(width));
       lastSpawnTimeRef.current = time;
     }
@@ -208,8 +225,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
     }
 
     // 4. Update Environment (Stars)
+    // Warp effect speed increases with level
+    const levelWarpSpeed = level * 2;
     starsRef.current.forEach(star => {
-      star.y += star.speed + (scoreRef.current / 2000) + (playerRef.current.speedBoostTimer > 0 ? 5 : 0);
+      star.y += star.speed + levelWarpSpeed + (scoreRef.current / 2000) + (playerRef.current.speedBoostTimer > 0 ? 5 : 0);
       if (star.y > height) {
         star.y = 0;
         star.x = Math.random() * width;
@@ -382,10 +401,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
     const flicker = Math.random() * 10;
     const boostLength = p.speedBoostTimer > 0 ? 40 : 20;
     
+    // Engine color gets hotter with levels
+    const engineColor = level > 3 ? '#ff4400' : (p.speedBoostTimer > 0 ? COLOR_PALETTE.warning : COLOR_PALETTE.secondary);
+
     ctx.moveTo(-5, p.height/2 - 10);
     ctx.lineTo(0, p.height/2 + flicker + boostLength);
     ctx.lineTo(5, p.height/2 - 10);
-    ctx.fillStyle = p.speedBoostTimer > 0 ? COLOR_PALETTE.warning : COLOR_PALETTE.secondary;
+    ctx.fillStyle = engineColor;
     ctx.fill();
     ctx.shadowBlur = 0; // Reset shadow
 
@@ -449,9 +471,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = 'white';
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-      ctx.fill();
+      // High speed stretch effect for higher levels
+      if (level > 1) {
+         ctx.fillRect(star.x, star.y, 1 + (level * 0.5), star.size * (1 + level));
+      } else {
+         ctx.beginPath();
+         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+         ctx.fill();
+      }
     });
     ctx.globalAlpha = 1;
 
@@ -508,10 +535,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
         0, 0, ast.width * 0.7
       );
       
-      // Rock colors
+      // Rock colors - slightly redder in higher levels
+      const redTint = level > 3 ? 50 : 0;
       gradient.addColorStop(0, '#9ca3af'); // Highlight (Light Gray)
-      gradient.addColorStop(0.4, '#4b5563'); // Mid Gray
-      gradient.addColorStop(1, '#1f2937'); // Shadow (Dark Gray)
+      gradient.addColorStop(0.4, `rgb(${75 + redTint}, 85, 99)`); // Mid Gray
+      gradient.addColorStop(1, `rgb(${31 + redTint}, 41, 55)`); // Shadow (Dark Gray)
 
       ctx.fillStyle = gradient;
       ctx.fill();
@@ -598,28 +626,30 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, setScore
   // Reset game
   useEffect(() => {
     if (gameState === GameState.PLAYING) {
-      scoreRef.current = 0;
-      asteroidsRef.current = [];
-      powerUpsRef.current = [];
-      projectilesRef.current = [];
-      lastSpawnTimeRef.current = performance.now();
-      lastPowerUpSpawnTimeRef.current = performance.now();
-      startTimeRef.current = Date.now();
-      
-      // Reset Player State
+      // Only reset these if score is 0 (new game)
+      // We don't want to clear asteroids on level up here, that's handled by update logic or external trigger
+      if (scoreRef.current === 0) {
+        asteroidsRef.current = [];
+        powerUpsRef.current = [];
+        projectilesRef.current = [];
+        startTimeRef.current = Date.now();
+        playerRef.current.shield = PLAYER_MAX_SHIELD;
+        playerRef.current.weaponLevel = 1;
+        playerRef.current.speedBoostTimer = 0;
+        setShield(PLAYER_MAX_SHIELD);
+        setWeaponLevel(1);
+        lastSpawnTimeRef.current = performance.now();
+      }
+
       playerRef.current.color = shipColor;
       playerRef.current.shape = shipShape;
-      playerRef.current.shield = PLAYER_MAX_SHIELD; // Full Shield
-      playerRef.current.weaponLevel = 1;
-      playerRef.current.speedBoostTimer = 0;
-      
-      // Force update UI
-      setShield(PLAYER_MAX_SHIELD);
-      setWeaponLevel(1);
 
       if (canvasRef.current) {
          playerRef.current.x = canvasRef.current.width / 2;
       }
+    } else {
+        // Reset score ref when not playing
+        scoreRef.current = 0;
     }
   }, [gameState, shipColor, shipShape, setShield, setWeaponLevel]);
 
