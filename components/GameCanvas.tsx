@@ -1,14 +1,15 @@
 
-import React, { useEffect, useRef } from 'react';
-import { GameState, Player, Asteroid, Star, Point, ShipShape, PowerUp, PowerUpType, Projectile, Entity } from '../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { GameState, Player, Asteroid, Star, Point, ShipShape, PowerUp, PowerUpType, Projectile, Entity, AsteroidType } from '../types';
 import { 
   PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_COLOR, 
   MIN_ASTEROID_SIZE, MAX_ASTEROID_SIZE, ASTEROID_BASE_SPEED,
   STAR_COUNT, COLOR_PALETTE,
   POWERUP_SIZE, POWERUP_SPEED, SPEED_BOOST_DURATION,
   PROJECTILE_WIDTH, PROJECTILE_HEIGHT, PROJECTILE_SPEED,
-  PLAYER_MAX_SHIELD, SHIELD_REGEN_AMOUNT,
-  LEVEL_SPEED_MULTIPLIER, LEVEL_SPAWN_RATE_REDUCTION
+  PLAYER_MAX_SHIELD, SHIELD_REGEN_AMOUNT, SHIELD_PASSIVE_DRAIN,
+  LEVEL_SPEED_MULTIPLIER, LEVEL_SPAWN_RATE_REDUCTION, WEAPON_DOWNGRADE_SHOTS,
+  ASTEROID_VARIANTS
 } from '../constants';
 import { startThruster, stopThruster, playExplosion, playPowerUp, playShoot, playShieldBreak, playDamage } from '../services/audioService';
 
@@ -21,11 +22,12 @@ interface GameCanvasProps {
   shipColor: string;
   shipShape: ShipShape;
   level: number;
+  generatedShipSprite: string | null;
 }
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ 
   gameState, onGameOver, setScore, setShield, setWeaponLevel, 
-  shipColor, shipShape, level 
+  shipColor, shipShape, level, generatedShipSprite 
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
@@ -44,6 +46,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     shield: PLAYER_MAX_SHIELD,
     maxShield: PLAYER_MAX_SHIELD,
     weaponLevel: 1,
+    shotCount: 0,
     speedBoostTimer: 0, 
     shape: 'STRIKER'
   });
@@ -53,6 +56,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const projectilesRef = useRef<Projectile[]>([]);
   const starsRef = useRef<Star[]>([]);
   
+  // AI Sprite Management
+  const [processedShipImage, setProcessedShipImage] = useState<HTMLImageElement | null>(null);
+
   const lastSpawnTimeRef = useRef<number>(0);
   const lastPowerUpSpawnTimeRef = useRef<number>(0);
   const lastShotTimeRef = useRef<number>(0);
@@ -61,6 +67,44 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   // Optimization to avoid excessive React state updates
   const lastReportedShieldRef = useRef<number>(PLAYER_MAX_SHIELD);
   const lastReportedWeaponLevelRef = useRef<number>(1);
+
+  // Process AI Image: Remove black background
+  useEffect(() => {
+    if (!generatedShipSprite) {
+      setProcessedShipImage(null);
+      return;
+    }
+
+    const img = new Image();
+    img.src = generatedShipSprite;
+    img.onload = () => {
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const ctx = offCanvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, img.width, img.height);
+      const data = imageData.data;
+
+      // Simple black removal keying
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        // If pixel is very dark (black), make it transparent
+        if (r < 30 && g < 30 && b < 30) {
+          data[i + 3] = 0;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      
+      const processedImg = new Image();
+      processedImg.src = offCanvas.toDataURL();
+      setProcessedShipImage(processedImg);
+    };
+  }, [generatedShipSprite]);
 
   // Initialize Stars
   const initStars = (width: number, height: number) => {
@@ -78,44 +122,64 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const createAsteroid = (width: number): Asteroid => {
+    // Determine Type
+    const randType = Math.random();
+    let type: AsteroidType = 'CARBON';
+    if (randType > 0.6 && randType <= 0.75) type = 'METALLIC'; // 15%
+    else if (randType > 0.75 && randType <= 0.85) type = 'MAGMA'; // 10%
+    else if (randType > 0.85) type = 'ICE'; // 15%
+    // 60% Carbon
+
+    const variant = ASTEROID_VARIANTS[type];
     const size = Math.random() * (MAX_ASTEROID_SIZE - MIN_ASTEROID_SIZE) + MIN_ASTEROID_SIZE;
     const points: Point[] = [];
-    const numPoints = 6 + Math.floor(Math.random() * 4);
+    
+    // Create jagged polygon
+    const numPoints = 6 + Math.floor(Math.random() * 6);
     for (let i = 0; i < numPoints; i++) {
       const angle = (i / numPoints) * Math.PI * 2;
-      const r = (size / 2) * (0.7 + Math.random() * 0.6); 
+      // Variance for jaggedness
+      const variance = variant.jaggedness + Math.random() * 0.4;
+      const r = (size / 2) * (1 - (Math.random() * variance * 0.5)); 
       points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
     }
 
-    // Calculate Speed based on Level
-    // Level 1 = Base Speed
-    // Level 2 = Base * 1.2
-    // Level 3 = Base * 1.4, etc.
-    // Plus a small random factor
     const levelSpeedBonus = ASTEROID_BASE_SPEED * ((level - 1) * (LEVEL_SPEED_MULTIPLIER - 1));
-    const finalSpeed = ASTEROID_BASE_SPEED + levelSpeedBonus + Math.random() * 2 + (scoreRef.current / 1000);
+    // Ice asteroids are faster
+    const typeSpeedMod = type === 'ICE' ? 1.5 : type === 'METALLIC' ? 0.8 : 1.0; 
+    
+    const finalSpeed = (ASTEROID_BASE_SPEED + levelSpeedBonus + Math.random() * 2) * typeSpeedMod + (scoreRef.current / 1000);
+
+    const baseHp = Math.floor(size / 20);
+    const finalHp = Math.max(1, Math.floor(baseHp * variant.hpMult));
+
+    const baseDamage = Math.floor(size * 8);
+    const finalDamage = Math.floor(baseDamage * variant.damageMult);
 
     return {
+      type,
       x: Math.random() * (width - size),
       y: -size * 2,
       width: size,
       height: size,
       vx: (Math.random() - 0.5) * 2,
       vy: finalSpeed,
-      color: '#8899aa',
+      color: variant.color,
       rotation: 0,
-      rotationSpeed: (Math.random() - 0.5) * 0.1,
+      rotationSpeed: (Math.random() - 0.5) * (type === 'METALLIC' ? 0.05 : 0.1),
       points,
-      hp: Math.floor(size / 20),
-      damage: Math.floor(size * 8) // Approx 240 - 640 dmg
+      hp: finalHp,
+      damage: finalDamage
     };
   };
 
   const createPowerUp = (width: number): PowerUp => {
     const rand = Math.random();
     let type: PowerUpType = 'FUEL';
-    if (rand < 0.33) type = 'SHIELD';
-    else if (rand < 0.66) type = 'WEAPON';
+    
+    // Adjusted probabilities: 35% Shield, 40% Weapon, 25% Fuel
+    if (rand < 0.35) type = 'SHIELD'; 
+    else if (rand < 0.75) type = 'WEAPON';
 
     return {
       x: Math.random() * (width - POWERUP_SIZE),
@@ -159,13 +223,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     if (playerRef.current.x < 0) playerRef.current.x = 0;
     if (playerRef.current.x > width - PLAYER_WIDTH) playerRef.current.x = width - PLAYER_WIDTH;
 
+    // Passive Shield Drain (Life Support Cost)
+    // Modified: Drain stops at 1 HP. Player cannot die from passive drain.
+    if (playerRef.current.shield > 1) {
+        playerRef.current.shield = Math.max(1, playerRef.current.shield - SHIELD_PASSIVE_DRAIN);
+    }
+    
     // Decrease Timers
     const dt = 16; // approx 60fps
     if (playerRef.current.speedBoostTimer > 0) playerRef.current.speedBoostTimer -= dt;
 
     // Report stats if changed
-    if (playerRef.current.shield !== lastReportedShieldRef.current) {
-        setShield(Math.max(0, playerRef.current.shield));
+    if (Math.abs(playerRef.current.shield - lastReportedShieldRef.current) > 1) { // Throttle updates slightly
+        setShield(Math.max(0, Math.floor(playerRef.current.shield)));
         lastReportedShieldRef.current = playerRef.current.shield;
     }
     if (playerRef.current.weaponLevel !== lastReportedWeaponLevelRef.current) {
@@ -174,7 +244,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // 2. Spawning
-    // Reduce spawn interval as level increases
     const levelSpawnReduction = (level - 1) * LEVEL_SPAWN_RATE_REDUCTION;
     const spawnRate = Math.max(200, 800 - levelSpawnReduction - (scoreRef.current / 5));
     
@@ -183,8 +252,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       lastSpawnTimeRef.current = time;
     }
 
-    // Spawn PowerUp
-    if (time - lastPowerUpSpawnTimeRef.current > 5000 + Math.random() * 8000) {
+    // Updated spawn timing: 3-8 seconds (was 5-13) to provide more weapons/shields
+    if (time - lastPowerUpSpawnTimeRef.current > 3000 + Math.random() * 5000) {
       powerUpsRef.current.push(createPowerUp(width));
       lastPowerUpSpawnTimeRef.current = time;
     }
@@ -195,6 +264,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       const px = playerRef.current.x + PLAYER_WIDTH / 2 - PROJECTILE_WIDTH / 2;
       const py = playerRef.current.y;
       
+      // Handle Weapon Overheat/Degradation
+      if (playerRef.current.weaponLevel > 1) {
+          playerRef.current.shotCount++;
+          if (playerRef.current.shotCount >= WEAPON_DOWNGRADE_SHOTS) {
+              playerRef.current.weaponLevel--;
+              playerRef.current.shotCount = 0; // Reset count after downgrade
+          }
+      }
+
       // Level 1: Single Shot
       if (playerRef.current.weaponLevel >= 1) {
         projectilesRef.current.push({
@@ -225,7 +303,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // 4. Update Environment (Stars)
-    // Warp effect speed increases with level
     const levelWarpSpeed = level * 2;
     starsRef.current.forEach(star => {
       star.y += star.speed + levelWarpSpeed + (scoreRef.current / 2000) + (playerRef.current.speedBoostTimer > 0 ? 5 : 0);
@@ -258,10 +335,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         if (pup.type === 'WEAPON') {
             playerRef.current.weaponLevel = Math.min(3, playerRef.current.weaponLevel + 1);
+            playerRef.current.shotCount = 0; // Reset degradation counter on pickup
         }
         if (pup.type === 'FUEL') {
             playerRef.current.speedBoostTimer = SPEED_BOOST_DURATION;
-            // Fuel also gives score bonus
             scoreRef.current += 100;
             setScore(scoreRef.current);
         }
@@ -303,25 +380,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Check Player Collision
       if (checkRadialCollision(playerRef.current, ast)) {
-        // Calculate damage
         playDamage();
         playerRef.current.shield -= ast.damage;
-        
-        // Destroy asteroid (simplified physics)
         asteroidsRef.current.splice(i, 1);
 
         if (playerRef.current.shield <= 0) {
-            // Game Over
             playExplosion();
             onGameOver(scoreRef.current, (Date.now() - startTimeRef.current) / 1000);
             return;
         } else {
-            playShieldBreak(); // reusing shield break sound as impact sound
-            // Screen shake logic could go here, or handled via canvas translation in draw
+            playShieldBreak();
         }
       }
 
-      // Cleanup off-screen
       if (ast.y > height + 100) {
         asteroidsRef.current.splice(i, 1);
         scoreRef.current += 10; // Distance bonus
@@ -333,16 +404,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const drawPowerUp = (ctx: CanvasRenderingContext2D, p: PowerUp) => {
     ctx.save();
     ctx.translate(p.x + p.width/2, p.y + p.height/2);
-    
-    // Glow
     ctx.shadowColor = p.color;
     ctx.shadowBlur = 15;
-    
     ctx.fillStyle = p.color;
     ctx.beginPath();
     
     if (p.type === 'SHIELD') {
-      // Circle
       ctx.arc(0, 0, p.width/2, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff';
@@ -351,17 +418,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText('+', 0, 1);
     } else if (p.type === 'WEAPON') {
-      // Diamond
       ctx.rotate(Math.PI / 4);
       ctx.fillRect(-p.width/2.5, -p.height/2.5, p.width/1.25, p.height/1.25);
-      ctx.rotate(-Math.PI / 4); // Reset rotation for text
+      ctx.rotate(-Math.PI / 4);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 12px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('W', 0, 1);
     } else {
-      // Fuel (Rect)
       ctx.fillRect(-p.width/3, -p.height/2, p.width/1.5, p.height);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 12px Arial';
@@ -369,7 +434,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText('F', 0, 1);
     }
-
     ctx.restore();
   };
 
@@ -377,7 +441,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.save();
     ctx.translate(p.x + p.width / 2, p.y + p.height / 2);
     
-    // Shield Visual (Faint circle if shield > 0)
+    // Shield Visual
     if (p.shield > 0) {
       const shieldOpacity = (p.shield / p.maxShield) * 0.5;
       ctx.beginPath();
@@ -389,19 +453,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fill();
     }
 
-    // Speed Boost Visual (Trail)
-    if (p.speedBoostTimer > 0) {
-        ctx.shadowColor = COLOR_PALETTE.warning;
-        ctx.shadowBlur = 20;
-    }
-
     // Engine trail
     ctx.beginPath();
-    // Flicker effect
     const flicker = Math.random() * 10;
     const boostLength = p.speedBoostTimer > 0 ? 40 : 20;
-    
-    // Engine color gets hotter with levels
     const engineColor = level > 3 ? '#ff4400' : (p.speedBoostTimer > 0 ? COLOR_PALETTE.warning : COLOR_PALETTE.secondary);
 
     ctx.moveTo(-5, p.height/2 - 10);
@@ -409,56 +464,64 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.lineTo(5, p.height/2 - 10);
     ctx.fillStyle = engineColor;
     ctx.fill();
-    ctx.shadowBlur = 0; // Reset shadow
-
+    
     // Draw Ship
-    ctx.beginPath();
-    
-    if (p.shape === 'STRIKER') {
-      ctx.moveTo(0, -p.height / 2); 
-      ctx.lineTo(p.width / 2, p.height / 2); 
-      ctx.lineTo(0, p.height / 2 - 10); 
-      ctx.lineTo(-p.width / 2, p.height / 2); 
-    } 
-    else if (p.shape === 'INTERCEPTOR') {
-      ctx.moveTo(0, -p.height / 2); 
-      ctx.lineTo(p.width / 2 - 5, p.height / 4); 
-      ctx.lineTo(p.width / 2 + 5, p.height / 2); 
-      ctx.lineTo(5, p.height / 2 - 5); 
-      ctx.lineTo(-5, p.height / 2 - 5); 
-      ctx.lineTo(-(p.width / 2 + 5), p.height / 2); 
-      ctx.lineTo(-(p.width / 2 - 5), p.height / 4); 
-    }
-    else if (p.shape === 'TITAN') {
-      ctx.moveTo(0, -p.height / 2); 
-      ctx.lineTo(p.width / 2, -p.height / 4); 
-      ctx.lineTo(p.width / 2, p.height / 2); 
-      ctx.lineTo(10, p.height / 2 - 5); 
-      ctx.lineTo(-10, p.height / 2 - 5); 
-      ctx.lineTo(-p.width / 2, p.height / 2); 
-      ctx.lineTo(-p.width / 2, -p.height / 4); 
-    }
+    if (processedShipImage) {
+      // Draw realistic AI generated ship
+      ctx.drawImage(
+        processedShipImage, 
+        -p.width * 1.5 / 2, -p.height * 1.5 / 2, 
+        p.width * 1.5, p.height * 1.5
+      );
+    } else {
+      // Draw Vector Fallback
+      ctx.beginPath();
+      if (p.shape === 'STRIKER') {
+        ctx.moveTo(0, -p.height / 2); 
+        ctx.lineTo(p.width / 2, p.height / 2); 
+        ctx.lineTo(0, p.height / 2 - 10); 
+        ctx.lineTo(-p.width / 2, p.height / 2); 
+      } 
+      else if (p.shape === 'INTERCEPTOR') {
+        ctx.moveTo(0, -p.height / 2); 
+        ctx.lineTo(p.width / 2 - 5, p.height / 4); 
+        ctx.lineTo(p.width / 2 + 5, p.height / 2); 
+        ctx.lineTo(5, p.height / 2 - 5); 
+        ctx.lineTo(-5, p.height / 2 - 5); 
+        ctx.lineTo(-(p.width / 2 + 5), p.height / 2); 
+        ctx.lineTo(-(p.width / 2 - 5), p.height / 4); 
+      }
+      else if (p.shape === 'TITAN') {
+        ctx.moveTo(0, -p.height / 2); 
+        ctx.lineTo(p.width / 2, -p.height / 4); 
+        ctx.lineTo(p.width / 2, p.height / 2); 
+        ctx.lineTo(10, p.height / 2 - 5); 
+        ctx.lineTo(-10, p.height / 2 - 5); 
+        ctx.lineTo(-p.width / 2, p.height / 2); 
+        ctx.lineTo(-p.width / 2, -p.height / 4); 
+      }
 
-    ctx.closePath();
-    ctx.fillStyle = COLOR_PALETTE.bg;
-    ctx.fill();
-    ctx.strokeStyle = p.color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // Cockpit
-    ctx.beginPath();
-    ctx.fillStyle = p.color;
-    if (p.shape === 'STRIKER') {
-      ctx.moveTo(0, -10);
-      ctx.lineTo(5, 5);
-      ctx.lineTo(-5, 5);
-    } else if (p.shape === 'INTERCEPTOR') {
-      ctx.rect(-3, -15, 6, 20);
-    } else if (p.shape === 'TITAN') {
-      ctx.rect(-10, -5, 20, 8);
+      ctx.closePath();
+      ctx.fillStyle = COLOR_PALETTE.bg;
+      ctx.fill();
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Cockpit
+      ctx.beginPath();
+      ctx.fillStyle = p.color;
+      if (p.shape === 'STRIKER') {
+        ctx.moveTo(0, -10);
+        ctx.lineTo(5, 5);
+        ctx.lineTo(-5, 5);
+      } else if (p.shape === 'INTERCEPTOR') {
+        ctx.rect(-3, -15, 6, 20);
+      } else if (p.shape === 'TITAN') {
+        ctx.rect(-10, -5, 20, 8);
+      }
+      ctx.fill();
     }
-    ctx.fill();
 
     ctx.restore();
   };
@@ -471,7 +534,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = 'white';
-      // High speed stretch effect for higher levels
       if (level > 1) {
          ctx.fillRect(star.x, star.y, 1 + (level * 0.5), star.size * (1 + level));
       } else {
@@ -482,43 +544,51 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     });
     ctx.globalAlpha = 1;
 
-    // Draw PowerUps
     powerUpsRef.current.forEach(pup => drawPowerUp(ctx, pup));
 
-    // Draw Projectiles
     ctx.fillStyle = COLOR_PALETTE.danger;
     projectilesRef.current.forEach(proj => {
       ctx.fillRect(proj.x, proj.y, proj.width, proj.height);
     });
 
-    // Draw Asteroids
+    // DRAW ASTEROIDS WITH VARIANTS
     asteroidsRef.current.forEach(ast => {
       ctx.save();
-      
-      // Calculate center positions
+      const variant = ASTEROID_VARIANTS[ast.type];
       const astCenterX = ast.x + ast.width / 2;
       const astCenterY = ast.y + ast.height / 2;
+      
+      // -- Proximity Glow --
       const playerCenterX = playerRef.current.x + playerRef.current.width / 2;
       const playerCenterY = playerRef.current.y + playerRef.current.height / 2;
-
-      // Proximity Glow Logic
       const dx = astCenterX - playerCenterX;
       const dy = astCenterY - playerCenterY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      const glowThreshold = 250; // Distance to start glowing
+      const glowThreshold = 250; 
 
+      // Danger Warning Glow (Red) if close
       if (dist < glowThreshold) {
-        // Calculate intensity (0 to 1) based on distance
         const intensity = Math.pow(1 - (dist / glowThreshold), 2); 
-        ctx.shadowColor = 'rgba(255, 68, 68, 0.6)'; // Red warning glow
+        ctx.shadowColor = 'rgba(255, 68, 68, 0.6)'; 
         ctx.shadowBlur = 25 * intensity;
-      } else {
+      } 
+      // Magma/Metallic innate glow
+      else if (variant.glow) {
+        ctx.shadowColor = variant.glow;
+        ctx.shadowBlur = ast.type === 'MAGMA' ? 15 : 10;
+      } 
+      else {
         ctx.shadowBlur = 0;
       }
 
       ctx.translate(astCenterX, astCenterY);
       ctx.rotate(ast.rotation);
       
+      // -- Opacity for ICE --
+      if (ast.type === 'ICE') {
+        ctx.globalAlpha = 0.8;
+      }
+
       ctx.beginPath();
       if (ast.points.length > 0) {
         ctx.moveTo(ast.points[0].x, ast.points[0].y);
@@ -528,31 +598,54 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       }
       ctx.closePath();
 
-      // Radial Gradient for 3D rock effect
-      // Light source simulated from top-left
+      // -- Gradients per Type --
       const gradient = ctx.createRadialGradient(
         -ast.width * 0.2, -ast.height * 0.2, ast.width * 0.1,
         0, 0, ast.width * 0.7
       );
       
-      // Rock colors - slightly redder in higher levels
-      const redTint = level > 3 ? 50 : 0;
-      gradient.addColorStop(0, '#9ca3af'); // Highlight (Light Gray)
-      gradient.addColorStop(0.4, `rgb(${75 + redTint}, 85, 99)`); // Mid Gray
-      gradient.addColorStop(1, `rgb(${31 + redTint}, 41, 55)`); // Shadow (Dark Gray)
+      if (ast.type === 'MAGMA') {
+        gradient.addColorStop(0, '#fdba74'); // Orange light
+        gradient.addColorStop(0.4, variant.color); // Red/Orange
+        gradient.addColorStop(1, variant.innerColor || '#450a0a'); // Dark Red/Black
+      } else if (ast.type === 'ICE') {
+        gradient.addColorStop(0, '#ffffff'); 
+        gradient.addColorStop(0.5, variant.color); 
+        gradient.addColorStop(1, variant.innerColor || '#155e75'); 
+      } else if (ast.type === 'METALLIC') {
+        gradient.addColorStop(0, '#ffffff'); // Shine
+        gradient.addColorStop(0.3, variant.color); // Silver
+        gradient.addColorStop(1, variant.innerColor || '#374151'); // Dark Metal
+      } else {
+        // CARBON (Default)
+        gradient.addColorStop(0, '#9ca3af'); 
+        gradient.addColorStop(0.5, variant.color); 
+        gradient.addColorStop(1, variant.innerColor || '#1f2937'); 
+      }
 
       ctx.fillStyle = gradient;
       ctx.fill();
 
-      // Border
-      ctx.strokeStyle = '#374151'; // Dark gray border
-      ctx.lineWidth = 2;
+      // -- Stroke / Detail --
+      ctx.lineWidth = ast.type === 'METALLIC' ? 3 : 2;
+      ctx.strokeStyle = ast.type === 'MAGMA' ? '#f97316' : 
+                        ast.type === 'ICE' ? '#cffafe' : 
+                        ast.type === 'METALLIC' ? '#f3f4f6' : '#374151';
       ctx.stroke();
-      
+
+      // -- Internal "Cracks" or Details (Simple Lines) --
+      if (ast.type !== 'ICE') { // Ice is clear
+         ctx.beginPath();
+         ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+         ctx.moveTo(0, 0);
+         ctx.lineTo(ast.width/4, ast.height/4);
+         ctx.stroke();
+      }
+
       ctx.restore();
+      ctx.globalAlpha = 1; // Reset
     });
 
-    // Draw Player
     drawPlayer(ctx, playerRef.current);
   };
 
@@ -565,14 +658,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     update(time, canvas.width, canvas.height);
     draw(ctx, canvas.width, canvas.height);
 
-    if (gameState === GameState.PLAYING) {
-      requestRef.current = requestAnimationFrame(loop);
-    } else if (gameState === GameState.MENU || gameState === GameState.GAME_OVER) {
+    if (gameState === GameState.PLAYING || gameState === GameState.MENU || gameState === GameState.GAME_OVER) {
        requestRef.current = requestAnimationFrame(loop);
     }
   };
 
-  // Audio Lifecycle Management
   useEffect(() => {
     if (gameState === GameState.PLAYING) {
       startThruster();
@@ -614,20 +704,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('touchmove', handleTouchMove);
       cancelAnimationFrame(requestRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
 
-  // Update player config live when in Menu
   useEffect(() => {
     playerRef.current.color = shipColor;
     playerRef.current.shape = shipShape;
   }, [shipColor, shipShape]);
 
-  // Reset game
   useEffect(() => {
     if (gameState === GameState.PLAYING) {
-      // Only reset these if score is 0 (new game)
-      // We don't want to clear asteroids on level up here, that's handled by update logic or external trigger
       if (scoreRef.current === 0) {
         asteroidsRef.current = [];
         powerUpsRef.current = [];
@@ -636,19 +721,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         playerRef.current.shield = PLAYER_MAX_SHIELD;
         playerRef.current.weaponLevel = 1;
         playerRef.current.speedBoostTimer = 0;
+        playerRef.current.shotCount = 0;
         setShield(PLAYER_MAX_SHIELD);
         setWeaponLevel(1);
         lastSpawnTimeRef.current = performance.now();
       }
-
       playerRef.current.color = shipColor;
       playerRef.current.shape = shipShape;
-
       if (canvasRef.current) {
          playerRef.current.x = canvasRef.current.width / 2;
       }
     } else {
-        // Reset score ref when not playing
         scoreRef.current = 0;
     }
   }, [gameState, shipColor, shipShape, setShield, setWeaponLevel]);

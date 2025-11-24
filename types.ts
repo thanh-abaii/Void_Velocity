@@ -7,6 +7,7 @@ export enum GameState {
 
 export type ShipShape = 'STRIKER' | 'INTERCEPTOR' | 'TITAN';
 export type PowerUpType = 'SHIELD' | 'WEAPON' | 'FUEL';
+export type AsteroidType = 'CARBON' | 'METALLIC' | 'MAGMA' | 'ICE';
 
 export interface Point {
   x: number;
@@ -35,11 +36,13 @@ export interface Player extends Entity {
   shield: number; // 0-1000
   maxShield: number;
   weaponLevel: number; // 1, 2, 3
+  shotCount: number; // Tracks shots fired to degrade weapon
   speedBoostTimer: number; // Time remaining for speed boost in ms
   shape: ShipShape;
 }
 
 export interface Asteroid extends Entity {
+  type: AsteroidType;
   rotation: number;
   rotationSpeed: number;
   points: Point[]; // Polygon points for drawing

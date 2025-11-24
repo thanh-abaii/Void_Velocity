@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import GameCanvas from './components/GameCanvas';
 import { GameState, ShipShape, HighScoreEntry } from './types';
-import { generateMissionBriefing, generateCrashReport } from './services/geminiService';
+import { generateMissionBriefing, generateCrashReport, generateShipDesign } from './services/geminiService';
 import { 
   COLOR_PALETTE, SHIP_COLORS, PLAYER_MAX_SHIELD, 
   STORAGE_KEY_HIGH_SCORES, MAX_HIGH_SCORES, 
@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [highScore, setHighScore] = useState(0);
   const [aiMessage, setAiMessage] = useState<string>("Initializing system...");
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingShip, setIsGeneratingShip] = useState(false);
   const [finalTime, setFinalTime] = useState(0);
   const [level, setLevel] = useState(1);
   const [showLevelUpScreen, setShowLevelUpScreen] = useState(false);
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   // Customization State
   const [shipColor, setShipColor] = useState<string>(SHIP_COLORS[0]);
   const [shipShape, setShipShape] = useState<ShipShape>('STRIKER');
+  const [generatedShipSprite, setGeneratedShipSprite] = useState<string | null>(null);
 
   // High Scores State
   const [highScores, setHighScores] = useState<HighScoreEntry[]>([]);
@@ -108,6 +110,17 @@ const App: React.FC = () => {
     setIsLoading(false);
   }, [updateHighScores]);
 
+  const handleGenerateShip = async () => {
+    setIsGeneratingShip(true);
+    const spriteData = await generateShipDesign(shipColor, shipShape);
+    if (spriteData) {
+      setGeneratedShipSprite(spriteData);
+    } else {
+      setAiMessage("Fabrication failed. Reverting to vector schematics.");
+    }
+    setIsGeneratingShip(false);
+  };
+
   return (
     <div className="relative w-full h-screen overflow-hidden font-mono text-white select-none">
       {/* Background Game Canvas */}
@@ -120,6 +133,7 @@ const App: React.FC = () => {
         shipColor={shipColor}
         shipShape={shipShape}
         level={level}
+        generatedShipSprite={generatedShipSprite}
       />
 
       {/* Level Up Overlay */}
@@ -155,6 +169,16 @@ const App: React.FC = () => {
                   {/* Grid overlay for tech feel */}
                   <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNCIgaGVpZ2h0PSI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xIDFWMGgxVjF6IiBmaWxsPSJyZ2JhKDAsMCwwLDAuMikiLz48L3N2Zz4=')] opacity-50"></div>
                 </div>
+                {shield < 200 && (
+                  <span className="text-[10px] text-red-500 mt-1 animate-pulse font-bold">
+                     WARNING: SHIELD CRITICAL
+                  </span>
+                )}
+                {shield >= 200 && (
+                   <span className="text-[10px] text-cyan-700 mt-1">
+                     Life Support: Active
+                   </span>
+                )}
              </div>
 
              {/* Level Indicator (Center) */}
@@ -230,7 +254,7 @@ const App: React.FC = () => {
                     {SHIP_COLORS.map((color) => (
                       <button
                         key={color}
-                        onClick={() => setShipColor(color)}
+                        onClick={() => { setShipColor(color); setGeneratedShipSprite(null); }}
                         className={`w-6 h-6 rounded-full border-2 transition-all duration-200 ${shipColor === color ? 'border-white scale-125 shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'border-transparent opacity-60 hover:opacity-100'}`}
                         style={{ backgroundColor: color }}
                         aria-label={`Select color ${color}`}
@@ -239,23 +263,38 @@ const App: React.FC = () => {
                   </div>
 
                   {/* Shapes */}
-                  <div className="flex justify-center gap-2">
+                  <div className="flex justify-center gap-2 mb-4">
                     {(['STRIKER', 'INTERCEPTOR', 'TITAN'] as ShipShape[]).map((shape) => (
                       <button
                         key={shape}
-                        onClick={() => setShipShape(shape)}
+                        onClick={() => { setShipShape(shape); setGeneratedShipSprite(null); }}
                         className={`px-3 py-1 text-xs uppercase tracking-wider border transition-all duration-200 rounded-sm ${shipShape === shape ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}
                       >
                         {shape}
                       </button>
                     ))}
                   </div>
+
+                   {/* AI Generation Button */}
+                   <button 
+                     onClick={handleGenerateShip}
+                     disabled={isGeneratingShip || isLoading}
+                     className="w-full py-2 mb-4 text-xs uppercase tracking-wider border border-purple-500 text-purple-400 hover:bg-purple-900/30 transition-all rounded disabled:opacity-50 flex items-center justify-center gap-2"
+                   >
+                     {isGeneratingShip ? (
+                       <span className="animate-pulse">Fabricating Nanobots...</span>
+                     ) : (
+                       <>
+                         <span>◆ Generate AI Skin (Nano Banana)</span>
+                       </>
+                     )}
+                   </button>
                 </div>
 
                 <div className="space-y-3">
                   <button 
                     onClick={startGame}
-                    disabled={isLoading}
+                    disabled={isLoading || isGeneratingShip}
                     className="group relative w-full py-4 px-6 bg-cyan-600 hover:bg-cyan-500 transition-all duration-200 rounded overflow-hidden"
                   >
                     <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]"></div>

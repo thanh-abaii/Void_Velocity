@@ -10,6 +10,7 @@ export const PLAYER_COLOR = '#00f0ff'; // Default Cyan
 
 export const PLAYER_MAX_SHIELD = 1000;
 export const SHIELD_REGEN_AMOUNT = 300;
+export const SHIELD_PASSIVE_DRAIN = 0.2; // Reduced from 0.5 to be more reasonable
 
 export const SHIP_COLORS = [
   '#00f0ff', // Cyan
@@ -19,11 +20,49 @@ export const SHIP_COLORS = [
   '#ffcc00'  // Yellow
 ];
 
+// Weapons
+export const WEAPON_DOWNGRADE_SHOTS = 80; // Increased from 25 to 80 (approx 12-15s of shooting)
+
 // Asteroids
 export const MIN_ASTEROID_SIZE = 30;
 export const MAX_ASTEROID_SIZE = 80;
 export const ASTEROID_BASE_SPEED = 3;
 export const SPAWN_RATE_MS = 800; // Spawn new asteroid every X ms
+
+export const ASTEROID_VARIANTS = {
+  CARBON: { 
+    color: '#8899aa', 
+    innerColor: '#4b5563',
+    glow: null, 
+    damageMult: 1, 
+    hpMult: 1,
+    jaggedness: 0.6 // Medium jagged
+  },
+  METALLIC: { 
+    color: '#e5e7eb', 
+    innerColor: '#9ca3af',
+    glow: '#ffffff', 
+    damageMult: 1.5, 
+    hpMult: 2.5, // Very hard
+    jaggedness: 0.9 // Very spiky
+  },
+  MAGMA: { 
+    color: '#ff4400', 
+    innerColor: '#7f1d1d',
+    glow: '#ff4400', 
+    damageMult: 2.0, // High damage
+    hpMult: 0.8, // Brittle
+    jaggedness: 0.5
+  },
+  ICE: { 
+    color: '#a5f3fc', 
+    innerColor: '#0891b2',
+    glow: '#22d3ee', 
+    damageMult: 0.6, // Low damage
+    hpMult: 0.5, // Weak
+    jaggedness: 0.7
+  }
+};
 
 // Level System
 export const LEVEL_THRESHOLDS = [0, 1000, 3000, 6000, 10000]; // Score needed for Level 1, 2, 3, 4, 5
@@ -35,8 +74,8 @@ export const LEVEL_NAMES = [
   "Event Horizon"
 ];
 // Difficulty Scaling per level
-export const LEVEL_SPEED_MULTIPLIER = 1.2; // Asteroids get 20% faster per level
-export const LEVEL_SPAWN_RATE_REDUCTION = 100; // Spawn 100ms faster per level
+export const LEVEL_SPEED_MULTIPLIER = 1.3; // Asteroids get 30% faster per level (Increased from 1.2)
+export const LEVEL_SPAWN_RATE_REDUCTION = 120; // Spawn 120ms faster per level (Increased from 100)
 
 // PowerUps
 export const POWERUP_SIZE = 25;
