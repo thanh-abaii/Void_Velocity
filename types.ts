@@ -5,7 +5,7 @@ export enum GameState {
   GAME_OVER = 'GAME_OVER'
 }
 
-export type ShipShape = 'STRIKER' | 'INTERCEPTOR' | 'TITAN';
+export type ShipShape = 'X-VANGUARD' | 'A-VELOCITY' | 'Y-FORTRESS';
 export type PowerUpType = 'SHIELD' | 'WEAPON' | 'FUEL';
 export type AsteroidType = 'CARBON' | 'METALLIC' | 'MAGMA' | 'ICE';
 
@@ -62,4 +62,9 @@ export interface Projectile extends Entity {
 export interface HighScoreEntry {
   score: number;
   date: string; // ISO string
+}
+
+export interface GameAssets {
+  ship: string | null;
+  asteroids: Record<AsteroidType, string | null>;
 }
